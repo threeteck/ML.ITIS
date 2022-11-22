@@ -18,8 +18,10 @@ last_point_pos = None
 event_handlers = dict()
 keypress_handlers = dict()
 points = []
+test_points = []
 is_auto = False
 svm: LinearSVC = None
+current_mouse_pos = None
 
 
 def event_handler(event_type: int):
@@ -56,12 +58,16 @@ def quit_handler(event: Event):
     exit()
 
 
-def add_point(pos, cls):
+def add_point(pos, cls, is_test=False):
     if not is_editing_enabled:
         return
-
-    points.append([*np.array(pos), cls])
-    pygame.draw.circle(screen, 'red' if cls == 0 else 'blue', pos, 4)
+    p = [*np.array(pos), cls]
+    pygame.draw.circle(screen, 'red' if cls == 0 else ('blue' if cls == 1 else 'gray'), pos, 4)
+    if not is_test:
+        points.append(p)
+    else:
+        test_points.append(p)
+        pygame.draw.circle(screen, 'yellow', pos, 2)
 
     if is_auto:
         fit_svm()
@@ -81,10 +87,10 @@ def mouse_down_handler(event: Event):
         last_point_pos = np.array(event.pos)
     if event.button == pygame.BUTTON_MIDDLE:
         if svm is None:
-            return
-
-        cls = svm.predict(np.array([event.pos]))[0]
-        add_point(event.pos, cls)
+            cls = -1
+        else:
+            cls = svm.predict(np.array([event.pos]))[0]
+        add_point(event.pos, cls, True)
 
 
 @event_handler(pygame.MOUSEBUTTONUP)
@@ -101,7 +107,8 @@ def mouse_up_handler(event: Event):
 
 @event_handler(pygame.MOUSEMOTION)
 def mouse_motion_handler(event: Event):
-    global last_point_pos
+    global last_point_pos, current_mouse_pos
+    current_mouse_pos = event.pos
 
     if is_lmb_down:
         if last_point_pos is None or np.sum((event.pos - last_point_pos) ** 2) > 125:
@@ -128,11 +135,13 @@ def keypress_handler(key_type: int):
 
 
 def clear_points():
-    global points
+    global points, test_points, svm
     if not is_editing_enabled:
         return
 
     points = []
+    test_points = []
+    svm = None
     screen.fill(color='white')
 
 
@@ -140,6 +149,9 @@ def redraw_points():
     screen.fill(color='white')
     for x, y, cls in points:
         pygame.draw.circle(screen, 'red' if cls == 0 else 'blue', (x, y), 4)
+    for x, y, cls in test_points:
+        pygame.draw.circle(screen, 'red' if cls == 0 else ('blue' if cls == 1 else 'gray'), (x, y), 4)
+        pygame.draw.circle(screen, 'yellow', (x, y), 2)
 
 
 @keypress_handler(pygame.K_ESCAPE)
@@ -148,9 +160,21 @@ def escape_press_handler(event: Event):
 
 
 @keypress_handler(pygame.K_a)
-def escape_press_handler(event: Event):
+def a_press_handler(event: Event):
     global is_auto
     is_auto = not is_auto
+
+
+@keypress_handler(pygame.K_t)
+def t_press_handler(event: Event):
+    if current_mouse_pos is None:
+        return
+
+    if svm is None:
+        cls = -1
+    else:
+        cls = svm.predict(np.array([current_mouse_pos]))[0]
+    add_point(current_mouse_pos, cls, True)
 
 
 @keypress_handler(pygame.K_RETURN)
@@ -159,12 +183,18 @@ def enter_press_handler(event: Event):
 
 
 def fit_svm():
-    global svm
+    global svm, test_points
     try:
         svm = SVC(kernel='linear', C=100)
         points_arr = np.array(points)
         X, y = points_arr[:, :2], points_arr[:, 2]
         svm.fit(X, y)
+
+        new_test_points = []
+        for x, y, _ in test_points:
+            cls = svm.predict(np.array([(x, y)]))[0]
+            new_test_points.append([x, y, cls])
+        test_points = new_test_points
 
         w = svm.coef_[0]
         b = svm.intercept_[0]
@@ -179,10 +209,10 @@ def fit_svm():
 
         redraw_points()
         pygame.draw.line(screen, 'black', (x_points[0], y_points[0]), (x_points[1], y_points[1]), 4)
-        pygame.draw.line(screen, 'black',
+        pygame.draw.line(screen, (100, 100, 100),
                          (points_of_line_above[0][0], points_of_line_above[0][1]),
                          (points_of_line_above[1][0], points_of_line_above[1][1]))
-        pygame.draw.line(screen, 'black',
+        pygame.draw.line(screen, (100, 100, 100),
                          (points_of_line_below[0][0], points_of_line_below[0][1]),
                          (points_of_line_below[1][0], points_of_line_below[1][1]))
     except:
